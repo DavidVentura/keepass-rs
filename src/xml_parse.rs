@@ -9,7 +9,9 @@ use xml::writer::{EmitterConfig, EventWriter, Result as WResult, XmlEvent as WXm
 
 use std::io::Write;
 
-use super::db::{AutoType, AutoTypeAssociation, Database, Entry, Group, Meta, Value};
+use super::db::{
+    AutoType, AutoTypeAssociation, Database, Entry, Group, Meta, Node as DBNode, Value,
+};
 
 #[derive(Debug)]
 enum Node {
@@ -33,19 +35,68 @@ impl Serializable for Meta {
     fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
         w.write(WXmlEvent::start_element("Meta"))?;
 
-        w.write(WXmlEvent::start_element("Generator"))?;
-        w.write(WXmlEvent::characters("KeePassXC"))?;
+        w.write(WXmlEvent::start_element("RecycleBinUUID"))?;
+        w.write(WXmlEvent::characters(&self.recyclebin_uuid))?;
         w.write(WXmlEvent::end_element())?;
-
-        w.write(WXmlEvent::start_element("Generator"))?;
-        w.write(WXmlEvent::characters("KeePassXC"))?;
-        w.write(WXmlEvent::end_element())?;
+        // some HashMap containing all unknown keys?
 
         w.write(WXmlEvent::end_element())?;
         Ok(())
     }
 }
 
+impl Serializable for Entry {
+    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+        w.write(WXmlEvent::start_element("Entry"))?;
+
+        w.write(WXmlEvent::start_element("UUID"))?;
+        w.write(WXmlEvent::characters(&self.uuid))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("IconID"))?;
+        w.write(WXmlEvent::characters(&self.icon_id.to_string()))?;
+        w.write(WXmlEvent::end_element())?;
+
+        // ForegroundColor, BackgroundColor, OverrideURL, Tags, Times
+
+        for field_name in self.fields.keys() {
+            w.write(WXmlEvent::start_element("String"))?;
+            w.write(WXmlEvent::start_element("Key"))?;
+            w.write(WXmlEvent::characters(&field_name))?;
+            w.write(WXmlEvent::end_element())?;
+            match self.fields.get(field_name) {
+                Some(&Value::Bytes(_)) => {
+                    w.write(WXmlEvent::start_element("Value"))?;
+                    w.write(WXmlEvent::end_element())?;
+                }
+                Some(&Value::Protected(ref pv)) => {
+                    w.write(WXmlEvent::start_element("Value").attr("Protected", "True"))?;
+
+                    w.write(WXmlEvent::characters(
+                        &std::str::from_utf8(pv.unsecure()).ok().unwrap(),
+                    ))?;
+                    w.write(WXmlEvent::end_element())?;
+                    // FIXME encrypt?
+                }
+                Some(&Value::Unprotected(ref uv)) => {
+                    w.write(WXmlEvent::start_element("Value"))?;
+                    w.write(WXmlEvent::characters(&uv))?;
+                    w.write(WXmlEvent::end_element())?;
+                }
+                None => {
+                    w.write(WXmlEvent::start_element("Value"))?;
+                    w.write(WXmlEvent::end_element())?;
+                }
+            };
+
+            w.write(WXmlEvent::end_element())?;
+        }
+        // AutoType, History
+
+        w.write(WXmlEvent::end_element())?;
+        Ok(())
+    }
+}
 impl Serializable for Group {
     fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
         w.write(WXmlEvent::start_element("Group"))?;
@@ -86,6 +137,28 @@ impl Serializable for Group {
         };
         w.write(WXmlEvent::characters(&val))?;
         w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("EnableSearching"))?;
+        let val = match &self.enable_searching {
+            None => "null",
+            Some(true) => "True",
+            Some(false) => "False",
+        };
+        w.write(WXmlEvent::characters(&val))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("LastTopVisibleGroup"))?;
+        w.write(WXmlEvent::characters(
+            &self.last_top_visible_entry.to_string(),
+        ))?;
+        w.write(WXmlEvent::end_element())?;
+
+        for node in &self.children {
+            match node {
+                DBNode::Group(g) => g.serialize(w)?,
+                DBNode::Entry(e) => e.serialize(w)?,
+            };
+        }
 
         w.write(WXmlEvent::end_element())?;
         Ok(())
@@ -300,13 +373,16 @@ pub(crate) fn parse_xml_block(xml: &[u8], inner_cipher: &mut dyn Cipher) -> Resu
                                 *expires = es;
                             }
                         }
-                        Node::UUID(r) => {
-                            if let Some(&mut Node::Group(Group { ref mut uuid, .. })) =
-                                parsed_stack_head
-                            {
+                        Node::UUID(r) => match parsed_stack_head {
+                            Some(&mut Node::Group(Group { ref mut uuid, .. })) => {
                                 *uuid = r;
                             }
-                        }
+                            Some(&mut Node::Entry(Entry { ref mut uuid, .. })) => {
+                                *uuid = r;
+                            }
+                            None => {}
+                            _ => {}
+                        },
                         Node::RecycleBinUUID(r) => {
                             if let Some(&mut Node::Meta(Meta {
                                 ref mut recyclebin_uuid,

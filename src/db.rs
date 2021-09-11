@@ -393,6 +393,8 @@ pub struct Entry {
     pub autotype: Option<AutoType>,
     pub expires: bool,
     pub times: HashMap<String, chrono::NaiveDateTime>,
+    pub uuid: String,
+    pub icon_id: u32,
 }
 
 impl<'a> Entry {
