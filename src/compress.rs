@@ -4,8 +4,12 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::io::{Read, Write};
 
+pub trait Compressible: Decompress + Compress {}
 pub trait Decompress {
     fn decompress(&self, in_buffer: &[u8]) -> Result<Vec<u8>>;
+}
+pub trait Compress {
+    fn compress(&self, in_buffer: &[u8]) -> Result<Vec<u8>>;
 }
 
 pub struct NoCompression;
@@ -27,15 +31,13 @@ impl Decompress for GZipCompression {
     }
 }
 
-pub trait Compress {
-    fn compress(&self, in_buffer: &[u8]) -> Result<Vec<u8>>;
-}
-
 impl Compress for NoCompression {
     fn compress(&self, in_buffer: &[u8]) -> Result<Vec<u8>> {
         Ok(in_buffer.to_vec())
     }
 }
+impl Compressible for NoCompression {}
+impl Compressible for GZipCompression {}
 
 impl Compress for GZipCompression {
     fn compress(&self, in_buffer: &[u8]) -> Result<Vec<u8>> {

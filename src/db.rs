@@ -9,6 +9,7 @@ use crate::{
         kdbx4::{KDBX4Header, KDBX4InnerHeader},
     },
     result::{DatabaseIntegrityError, Error, Result},
+    xml_parse::write_xml,
 };
 
 #[derive(Debug)]
@@ -85,6 +86,10 @@ impl Database {
         }
     }
 
+    pub fn dump(&self) -> Result<Vec<u8>> {
+        Ok(write_xml(&self).unwrap())
+    }
+
     /// Helper function to load a database into its internal XML chunks
     pub fn get_xml_chunks(
         source: &mut dyn std::io::Read,
@@ -139,6 +144,48 @@ impl Database {
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Meta {
     pub recyclebin_uuid: String,
+    /*
+    <Generator>KeePassXC</Generator>
+    <DatabaseName>test</DatabaseName>
+    <DatabaseNameChanged>Kxa22A4AAAA=</DatabaseNameChanged>
+    <DatabaseDescription/>
+    <DatabaseDescriptionChanged>KBa22A4AAAA=</DatabaseDescriptionChanged>
+    <DefaultUserName/>
+    <DefaultUserNameChanged>KBa22A4AAAA=</DefaultUserNameChanged>
+    <MaintenanceHistoryDays>365</MaintenanceHistoryDays>
+    <Color/>
+    <MasterKeyChanged>OBa22A4AAAA=</MasterKeyChanged>
+    <MasterKeyChangeRec>-1</MasterKeyChangeRec>
+    <MasterKeyChangeForce>-1</MasterKeyChangeForce>
+    <MemoryProtection>
+        <ProtectTitle>False</ProtectTitle>
+        <ProtectUserName>False</ProtectUserName>
+        <ProtectPassword>True</ProtectPassword>
+        <ProtectURL>False</ProtectURL>
+        <ProtectNotes>False</ProtectNotes>
+    </MemoryProtection>
+    <CustomIcons/>
+    <RecycleBinEnabled>True</RecycleBinEnabled>
+    <RecycleBinUUID>wKpFYgcxR0WAHYSjJ4Iyhw==</RecycleBinUUID>
+    <RecycleBinChanged>mQrA2A4AAAA=</RecycleBinChanged>
+    <EntryTemplatesGroup>AAAAAAAAAAAAAAAAAAAAAA==</EntryTemplatesGroup>
+    <EntryTemplatesGroupChanged>KBa22A4AAAA=</EntryTemplatesGroupChanged>
+    <LastSelectedGroup>AAAAAAAAAAAAAAAAAAAAAA==</LastSelectedGroup>
+    <LastTopVisibleGroup>AAAAAAAAAAAAAAAAAAAAAA==</LastTopVisibleGroup>
+    <HistoryMaxItems>10</HistoryMaxItems>
+    <HistoryMaxSize>6291456</HistoryMaxSize>
+    <SettingsChanged>KBa22A4AAAA=</SettingsChanged>
+    <CustomData>
+        <Item>
+            <Key>_LAST_MODIFIED</Key>
+            <Value>Tue Aug 31 11:32:50 2021 GMT</Value>
+        </Item>
+        <Item>
+            <Key>KPXC_DECRYPTION_TIME_PREFERENCE</Key>
+            <Value>100</Value>
+        </Item>
+    </CustomData>
+    */
 }
 
 /// A database group with child groups and entries
@@ -163,6 +210,15 @@ pub struct Group {
 
     /// The unique identifier of the group
     pub uuid: String,
+
+    pub notes: String,
+    pub icon_id: u32,
+    // pub times: ??,
+    pub is_expanded: bool,
+    // pub defaultAutoTypeSequence: bool,
+    pub enable_auto_type: Option<bool>,
+    pub enable_searching: Option<bool>,
+    pub last_top_visible_entry: String,
 }
 
 impl Group {

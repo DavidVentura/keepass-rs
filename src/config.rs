@@ -171,7 +171,7 @@ pub enum Compression {
 }
 
 impl Compression {
-    pub(crate) fn get_compression(&self) -> Box<dyn compress::Decompress> {
+    pub(crate) fn get_compression(&self) -> Box<dyn compress::Compressible> {
         match self {
             // This has to return a decompressable/compressable
             Compression::None => Box::new(compress::NoCompression),

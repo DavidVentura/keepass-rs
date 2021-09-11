@@ -300,3 +300,28 @@ pub(crate) fn decrypt_xml(
 
     Ok((header, inner_header, xml.to_vec()))
 }
+
+/// Encrypt a KeePass KDBX4 database from representation and key elements
+pub(crate) fn encrypt_xml(
+    key_elements: &[Vec<u8>],
+    header: KDBX4Header,
+    inner_header: KDBX4InnerHeader,
+    xml: Vec<u8>,
+) -> Result<()> {
+    let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
+    let composite_key = crypt::calculate_sha256(&key_elements)?;
+    let transformed_key = header.kdf.get_kdf().transform_key(&composite_key)?;
+    let master_key = crypt::calculate_sha256(&[header.master_seed.as_ref(), &transformed_key])?;
+
+    let raw_payload = xml;
+    let payload_compressed = header
+        .compression
+        .get_compression()
+        .compress(&raw_payload)?;
+
+    let encrypted = header
+        .outer_cipher
+        .get_cipher(&master_key, header.outer_iv.as_ref())?
+        .encrypt(&payload_compressed)?;
+    Ok(())
+}

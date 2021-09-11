@@ -5,8 +5,11 @@ use secstr::SecStr;
 
 use xml::name::OwnedName;
 use xml::reader::{EventReader, XmlEvent};
+use xml::writer::{EmitterConfig, EventWriter, Result as WResult, XmlEvent as WXmlEvent};
 
-use super::db::{AutoType, AutoTypeAssociation, Entry, Group, Meta, Value};
+use std::io::Write;
+
+use super::db::{AutoType, AutoTypeAssociation, Database, Entry, Group, Meta, Value};
 
 #[derive(Debug)]
 enum Node {
@@ -20,6 +23,83 @@ enum Node {
     Meta(Meta),
     UUID(String),
     RecycleBinUUID(String),
+}
+
+pub trait Serializable {
+    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()>;
+}
+
+impl Serializable for Meta {
+    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+        w.write(WXmlEvent::start_element("Meta"))?;
+
+        w.write(WXmlEvent::start_element("Generator"))?;
+        w.write(WXmlEvent::characters("KeePassXC"))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("Generator"))?;
+        w.write(WXmlEvent::characters("KeePassXC"))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::end_element())?;
+        Ok(())
+    }
+}
+
+impl Serializable for Group {
+    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+        w.write(WXmlEvent::start_element("Group"))?;
+
+        w.write(WXmlEvent::start_element("UUID"))?;
+        w.write(WXmlEvent::characters(&self.uuid))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("Name"))?;
+        w.write(WXmlEvent::characters(&self.name))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("Notes"))?;
+        if self.notes.len() > 0 {
+            w.write(WXmlEvent::characters(&self.notes))?;
+        }
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("IconID"))?;
+        w.write(WXmlEvent::characters(&self.icon_id.to_string()))?;
+        w.write(WXmlEvent::end_element())?;
+
+        // TIMES ??
+
+        w.write(WXmlEvent::start_element("IsExpanded"))?;
+        w.write(WXmlEvent::characters(&self.is_expanded.to_string()))?;
+        w.write(WXmlEvent::end_element())?;
+
+        // FIXME
+        w.write(WXmlEvent::start_element("DefaultAutoTypeSequence"))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::start_element("EnableAutoType"))?;
+        let val = match &self.enable_auto_type {
+            None => "null",
+            Some(true) => "True",
+            Some(false) => "False",
+        };
+        w.write(WXmlEvent::characters(&val))?;
+        w.write(WXmlEvent::end_element())?;
+
+        w.write(WXmlEvent::end_element())?;
+        Ok(())
+    }
+}
+
+impl Serializable for Database {
+    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+        w.write(WXmlEvent::start_element("KeePassFile"))?;
+        self.meta.serialize(w)?;
+        self.root.serialize(w)?;
+        w.write(WXmlEvent::end_element())?;
+        Ok(())
+    }
 }
 
 fn parse_xml_timestamp(t: &str) -> Result<chrono::NaiveDateTime> {
@@ -40,6 +120,16 @@ fn parse_xml_timestamp(t: &str) -> Result<chrono::NaiveDateTime> {
             Ok(ndt)
         }
     }
+}
+
+pub(crate) fn write_xml(d: &Database) -> WResult<Vec<u8>> {
+    let mut data = Vec::new();
+    let mut writer = EmitterConfig::new()
+        .perform_indent(true)
+        .create_writer(&mut data);
+
+    d.serialize(&mut writer).unwrap();
+    Ok(data)
 }
 
 pub(crate) fn parse_xml_block(xml: &[u8], inner_cipher: &mut dyn Cipher) -> Result<(Group, Meta)> {
