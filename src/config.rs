@@ -2,7 +2,7 @@ use hex_literal::hex;
 use std::convert::TryFrom;
 
 use crate::{
-    crypt, decompress,
+    compress, crypt,
     result::{DatabaseIntegrityError, Error, Result},
     variant_dictionary::VariantDictionary,
 };
@@ -171,10 +171,11 @@ pub enum Compression {
 }
 
 impl Compression {
-    pub(crate) fn get_compression(&self) -> Box<dyn decompress::Decompress> {
+    pub(crate) fn get_compression(&self) -> Box<dyn compress::Decompress> {
         match self {
-            Compression::None => Box::new(decompress::NoCompression),
-            Compression::GZip => Box::new(decompress::GZipCompression),
+            // This has to return a decompressable/compressable
+            Compression::None => Box::new(compress::NoCompression),
+            Compression::GZip => Box::new(compress::GZipCompression),
         }
     }
 }
