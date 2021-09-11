@@ -7,6 +7,7 @@ use salsa20::{cipher::NewCipher, Salsa20};
 
 pub(crate) trait Cipher {
     fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>>;
+    fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>>;
 }
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
@@ -35,6 +36,9 @@ impl Cipher for AES256Cipher {
             .map_err(|e| Error::from(DatabaseIntegrityError::from(CryptoError::from(e))))?;
 
         Ok(buf)
+    }
+    fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        Ok(Vec::from(data))
     }
 }
 
@@ -65,6 +69,9 @@ impl Cipher for TwofishCipher {
 
         Ok(buf)
     }
+    fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        Ok(Vec::from(data))
+    }
 }
 
 pub(crate) struct Salsa20Cipher {
@@ -87,6 +94,9 @@ impl Cipher for Salsa20Cipher {
         let mut buffer = Vec::from(ciphertext);
         self.cipher.apply_keystream(&mut buffer);
         Ok(buffer)
+    }
+    fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        Ok(Vec::from(data))
     }
 }
 
@@ -122,6 +132,9 @@ impl Cipher for ChaCha20Cipher {
         self.cipher.apply_keystream(&mut buffer);
         Ok(buffer)
     }
+    fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        Ok(Vec::from(data))
+    }
 }
 
 pub(crate) struct PlainCipher;
@@ -134,4 +147,17 @@ impl Cipher for PlainCipher {
     fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>> {
         Ok(Vec::from(ciphertext))
     }
+    fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        Ok(Vec::from(data))
+    }
+}
+
+#[test]
+fn test_decrypt_encrypt_plain() -> Result<()> {
+    let data = "hi this is a test";
+    let bdata: Vec<u8> = data.as_bytes().to_vec();
+    let encrypted = PlainCipher.encrypt(&bdata)?;
+    let decrypted = PlainCipher.decrypt(&encrypted)?;
+    assert_eq!(bdata, decrypted);
+    Ok(())
 }
