@@ -27,12 +27,20 @@ enum Node {
     RecycleBinUUID(String),
 }
 
-pub trait Serializable {
-    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()>;
+pub(crate) trait Serializable {
+    fn serialize<W: Write>(
+        &self,
+        w: &mut EventWriter<W>,
+        encryptor: &mut dyn Cipher,
+    ) -> WResult<()>;
 }
 
 impl Serializable for Meta {
-    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+    fn serialize<W: Write>(
+        &self,
+        w: &mut EventWriter<W>,
+        _encryptor: &mut dyn Cipher,
+    ) -> WResult<()> {
         w.write(WXmlEvent::start_element("Meta"))?;
 
         w.write(WXmlEvent::start_element("RecycleBinUUID"))?;
@@ -46,7 +54,11 @@ impl Serializable for Meta {
 }
 
 impl Serializable for Entry {
-    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+    fn serialize<W: Write>(
+        &self,
+        w: &mut EventWriter<W>,
+        encryptor: &mut dyn Cipher,
+    ) -> WResult<()> {
         w.write(WXmlEvent::start_element("Entry"))?;
 
         w.write(WXmlEvent::start_element("UUID"))?;
@@ -72,11 +84,19 @@ impl Serializable for Entry {
                 Some(&Value::Protected(ref pv)) => {
                     w.write(WXmlEvent::start_element("Value").attr("Protected", "True"))?;
 
-                    w.write(WXmlEvent::characters(
-                        &std::str::from_utf8(pv.unsecure()).ok().unwrap(),
-                    ))?;
+                    let plain = std::str::from_utf8(pv.unsecure())
+                        .ok()
+                        .unwrap()
+                        .as_bytes()
+                        .to_vec();
+
+                    if plain.len() > 0 {
+                        let buf_encrypted = encryptor.encrypt(&plain).unwrap();
+                        let buf_encoded = base64::encode(&buf_encrypted);
+
+                        w.write(WXmlEvent::characters(&buf_encoded))?;
+                    }
                     w.write(WXmlEvent::end_element())?;
-                    // FIXME encrypt?
                 }
                 Some(&Value::Unprotected(ref uv)) => {
                     w.write(WXmlEvent::start_element("Value"))?;
@@ -92,13 +112,24 @@ impl Serializable for Entry {
             w.write(WXmlEvent::end_element())?;
         }
         // AutoType, History
+        if self.history.len() > 0 {
+            w.write(WXmlEvent::start_element("History"))?;
+            for history_item in &self.history {
+                history_item.serialize(w, encryptor)?;
+            }
+            w.write(WXmlEvent::end_element())?;
+        }
 
         w.write(WXmlEvent::end_element())?;
         Ok(())
     }
 }
 impl Serializable for Group {
-    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+    fn serialize<W: Write>(
+        &self,
+        w: &mut EventWriter<W>,
+        encryptor: &mut dyn Cipher,
+    ) -> WResult<()> {
         w.write(WXmlEvent::start_element("Group"))?;
 
         w.write(WXmlEvent::start_element("UUID"))?;
@@ -155,8 +186,8 @@ impl Serializable for Group {
 
         for node in &self.children {
             match node {
-                DBNode::Group(g) => g.serialize(w)?,
-                DBNode::Entry(e) => e.serialize(w)?,
+                DBNode::Group(g) => g.serialize(w, encryptor)?,
+                DBNode::Entry(e) => e.serialize(w, encryptor)?,
             };
         }
 
@@ -166,10 +197,14 @@ impl Serializable for Group {
 }
 
 impl Serializable for Database {
-    fn serialize<W: Write>(&self, w: &mut EventWriter<W>) -> WResult<()> {
+    fn serialize<W: Write>(
+        &self,
+        w: &mut EventWriter<W>,
+        encryptor: &mut dyn Cipher,
+    ) -> WResult<()> {
         w.write(WXmlEvent::start_element("KeePassFile"))?;
-        self.meta.serialize(w)?;
-        self.root.serialize(w)?;
+        self.meta.serialize(w, encryptor)?;
+        self.root.serialize(w, encryptor)?;
         w.write(WXmlEvent::end_element())?;
         Ok(())
     }
@@ -195,13 +230,13 @@ fn parse_xml_timestamp(t: &str) -> Result<chrono::NaiveDateTime> {
     }
 }
 
-pub(crate) fn write_xml(d: &Database) -> WResult<Vec<u8>> {
+pub(crate) fn write_xml(d: &Database, encryptor: &mut dyn Cipher) -> WResult<Vec<u8>> {
     let mut data = Vec::new();
     let mut writer = EmitterConfig::new()
         .perform_indent(true)
         .create_writer(&mut data);
 
-    d.serialize(&mut writer).unwrap();
+    d.serialize(&mut writer, encryptor).unwrap();
     Ok(data)
 }
 
@@ -318,6 +353,12 @@ pub(crate) fn parse_xml_block(xml: &[u8], inner_cipher: &mut dyn Cipher) -> Resu
                             {
                                 // A Entry was finished - add Node to parent Group's children
                                 children.push(crate::Node::Entry(finished_entry))
+                            } else if let Some(&mut Node::Entry(Entry {
+                                ref mut history, ..
+                            })) = parsed_stack_head
+                            {
+                                //Entry nested in an Entry means we are working with History
+                                history.push(finished_entry)
                             }
                         }
 

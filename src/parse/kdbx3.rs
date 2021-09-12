@@ -1,7 +1,7 @@
 use crate::{
     config::{Compression, InnerCipherSuite, OuterCipherSuite},
     crypt::{self, kdf::Kdf},
-    db::{Database, Group, Header, InnerHeader, Meta, Node},
+    db::{DBVersion, Database, Group, Header, InnerHeader, Meta, Node},
     result::{DatabaseIntegrityError, Error, Result},
     xml_parse,
 };
@@ -28,6 +28,12 @@ pub struct KDBX3Header {
     pub body_start: usize,
 }
 
+impl KDBX3Header {
+    pub(crate) fn decryptor(&self) -> Result<Box<dyn crypt::ciphers::Cipher>> {
+        let stream_key = crypt::calculate_sha256(&[self.protected_stream_key.as_ref()])?;
+        Ok(self.inner_cipher.get_cipher(&stream_key)?)
+    }
+}
 fn parse_header(data: &[u8]) -> Result<KDBX3Header> {
     let (version, file_major_version, file_minor_version) = crate::parse::get_kdbx_version(data)?;
 
@@ -205,6 +211,7 @@ pub(crate) fn parse(data: &[u8], key_elements: &[Vec<u8>]) -> Result<Database> {
         inner_header: InnerHeader::None,
         root,
         meta,
+        version: DBVersion::KDB3,
     };
 
     Ok(db)

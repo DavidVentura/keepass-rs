@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use crate::{
     config::{Compression, InnerCipherSuite, KdfSettings, OuterCipherSuite},
     crypt,
-    db::{Database, Header, InnerHeader},
+    db::{DBVersion, Database, Header, InnerHeader},
     hmac_block_stream,
     result::{DatabaseIntegrityError, Error, Result},
     variant_dictionary::VariantDictionary,
@@ -49,6 +49,14 @@ pub struct KDBX4InnerHeader {
     inner_random_stream_key: Vec<u8>,
     binaries: Vec<BinaryAttachment>,
     body_start: usize,
+}
+
+impl KDBX4InnerHeader {
+    pub(crate) fn decryptor(&self) -> Result<Box<dyn crypt::ciphers::Cipher>> {
+        Ok(self
+            .inner_random_stream
+            .get_cipher(&self.inner_random_stream_key)?)
+    }
 }
 
 fn parse_outer_header(data: &[u8]) -> Result<KDBX4Header> {
@@ -236,6 +244,7 @@ pub(crate) fn parse(data: &[u8], key_elements: &[Vec<u8>]) -> Result<Database> {
         inner_header: InnerHeader::KDBX4(inner_header),
         root,
         meta,
+        version: DBVersion::KDB4,
     };
 
     Ok(db)
@@ -303,25 +312,34 @@ pub(crate) fn decrypt_xml(
 
 /// Encrypt a KeePass KDBX4 database from representation and key elements
 pub(crate) fn encrypt_xml(
-    key_elements: &[Vec<u8>],
-    header: KDBX4Header,
-    inner_header: KDBX4InnerHeader,
-    xml: Vec<u8>,
-) -> Result<()> {
+    //key_elements: &[Vec<u8>],
+    d: &Database,
+) -> Result<Vec<u8>> {
+    /*
     let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
     let composite_key = crypt::calculate_sha256(&key_elements)?;
     let transformed_key = header.kdf.get_kdf().transform_key(&composite_key)?;
     let master_key = crypt::calculate_sha256(&[header.master_seed.as_ref(), &transformed_key])?;
+    */
 
-    let raw_payload = xml;
-    let payload_compressed = header
-        .compression
-        .get_compression()
-        .compress(&raw_payload)?;
+    /*
+    let header = match &d.header {
+        Header::KDBX4(h) => h,
+        Header::KDBX3(h) => h,
+        _ => panic!("Bad header found?"),
+    };
+    */
+
+    let mut inner_encryptor = d.get_decryptor().unwrap();
+
+    let payload = xml_parse::write_xml(&d, &mut *inner_encryptor).unwrap();
+    /*
+    let payload_compressed = header.compression.get_compression().compress(&xml)?;
 
     let encrypted = header
         .outer_cipher
         .get_cipher(&master_key, header.outer_iv.as_ref())?
         .encrypt(&payload_compressed)?;
-    Ok(())
+        */
+    Ok(payload)
 }

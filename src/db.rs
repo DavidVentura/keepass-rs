@@ -9,7 +9,6 @@ use crate::{
         kdbx4::{KDBX4Header, KDBX4InnerHeader},
     },
     result::{DatabaseIntegrityError, Error, Result},
-    xml_parse::write_xml,
 };
 
 #[derive(Debug)]
@@ -23,6 +22,13 @@ pub enum Header {
 pub enum InnerHeader {
     None,
     KDBX4(KDBX4InnerHeader),
+}
+
+#[derive(Debug)]
+pub enum DBVersion {
+    KDB2,
+    KDB3,
+    KDB4,
 }
 
 /// A decrypted KeePass database
@@ -39,6 +45,8 @@ pub struct Database {
 
     // Metadata of the KeePass database
     pub meta: Meta,
+
+    pub version: DBVersion,
 }
 
 impl Database {
@@ -86,8 +94,28 @@ impl Database {
         }
     }
 
+    pub(crate) fn get_decryptor(&self) -> Result<Box<dyn crypt::ciphers::Cipher>> {
+        let cipher = match self.version {
+            DBVersion::KDB3 => {
+                if let Header::KDBX3(h) = &self.header {
+                    h.decryptor()?
+                } else {
+                    Box::new(crypt::ciphers::PlainCipher::new(&Vec::new())?)
+                }
+            }
+            DBVersion::KDB4 => {
+                if let InnerHeader::KDBX4(header) = &self.inner_header {
+                    header.decryptor()?
+                } else {
+                    Box::new(crypt::ciphers::PlainCipher::new(&Vec::new())?)
+                }
+            }
+            _ => Box::new(crypt::ciphers::PlainCipher::new(&Vec::new())?),
+        };
+        Ok(cipher)
+    }
     pub fn dump(&self) -> Result<Vec<u8>> {
-        Ok(write_xml(&self).unwrap())
+        Ok(crate::parse::kdbx4::encrypt_xml(self).unwrap())
     }
 
     /// Helper function to load a database into its internal XML chunks
@@ -395,6 +423,7 @@ pub struct Entry {
     pub times: HashMap<String, chrono::NaiveDateTime>,
     pub uuid: String,
     pub icon_id: u32,
+    pub history: Vec<Entry>,
 }
 
 impl<'a> Entry {

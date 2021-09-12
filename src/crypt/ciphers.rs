@@ -3,7 +3,6 @@ use crate::result::{CryptoError, DatabaseIntegrityError, Error, Result};
 use aes::Aes256;
 use block_modes::{block_padding::Pkcs7, BlockMode, Cbc};
 use cipher::{generic_array::GenericArray, StreamCipher};
-use hex_literal::hex;
 use salsa20::{cipher::NewCipher, Salsa20};
 
 pub(crate) trait Cipher {
@@ -38,7 +37,6 @@ impl Cipher for AES256Cipher {
         Ok(res)
     }
     fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
-        println!("AES256");
         let cipher = Aes256Cbc::new_from_slices(&self.key, &self.iv)
             .map_err(|e| Error::from(DatabaseIntegrityError::from(CryptoError::from(e))))?;
 
@@ -73,7 +71,6 @@ impl Cipher for TwofishCipher {
         Ok(res)
     }
     fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
-        println!("TwoFish");
         let cipher = TwofishCbc::new_from_slices(&self.key, &self.iv)
             .map_err(|e| Error::from(DatabaseIntegrityError::from(CryptoError::from(e))))?;
         Ok(cipher.encrypt_vec(data))
@@ -102,8 +99,7 @@ impl Cipher for Salsa20Cipher {
         Ok(buffer)
     }
     fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
-        println!("Salsa20");
-        Ok(Vec::from(data))
+        self.decrypt(data)
     }
 }
 
@@ -140,8 +136,7 @@ impl Cipher for ChaCha20Cipher {
         Ok(buffer)
     }
     fn encrypt(&mut self, data: &[u8]) -> Result<Vec<u8>> {
-        println!("Chacha20");
-        Ok(Vec::from(data))
+        self.decrypt(data)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     config::OuterCipherSuite,
     crypt::kdf::Kdf,
-    db::{Database, Entry, Group, Header, InnerHeader, Meta, Node, NodeRefMut, Value},
+    db::{DBVersion, Database, Entry, Group, Header, InnerHeader, Meta, Node, NodeRefMut, Value},
     result::{DatabaseIntegrityError, Error, Result},
 };
 
@@ -360,5 +360,6 @@ pub(crate) fn parse(data: &[u8], key_elements: &[Vec<u8>]) -> Result<Database> {
         meta: Meta {
             recyclebin_uuid: "".to_owned(),
         },
+        version: DBVersion::KDB2,
     })
 }
