@@ -178,9 +178,9 @@ impl From<&KdfSettings> for VariantDictionary {
     fn from(ks: &KdfSettings) -> VariantDictionary {
         match ks {
             KdfSettings::Aes { seed, rounds } => {
-                let data: HashMap::new();
-                data.insert("R", rounds);
-                data.insert("S", seed);
+                let data = HashMap::<String, VariantDictionaryValue>::new();
+                data.insert("R".to_string(), VariantDictionaryValue::UInt64(*rounds));
+                data.insert("S".to_string(), VariantDictionaryValue::ByteArray(*seed));
                 VariantDictionary { data }
             }
             KdfSettings::Argon2 {
@@ -190,14 +190,21 @@ impl From<&KdfSettings> for VariantDictionary {
                 parallelism,
                 version,
             } => {
-                VariantDictionary {}
-                /*
-                let memory: u64 = vd.get("M")?;
-                let salt: Vec<u8> = vd.get("S")?;
-                let iterations: u64 = vd.get("I")?;
-                let parallelism: u32 = vd.get("P")?;
-                let version: u32 = vd.get("V")?;
-                */
+                let data = HashMap::<String, VariantDictionaryValue>::new();
+                data.insert("M".to_string(), VariantDictionaryValue::UInt64(*memory));
+                data.insert("S".to_string(), VariantDictionaryValue::ByteArray(*salt));
+                data.insert("I".to_string(), VariantDictionaryValue::UInt64(*iterations));
+                data.insert(
+                    "P".to_string(),
+                    VariantDictionaryValue::UInt32(*parallelism),
+                );
+
+                let version = match version {
+                    argon2::Version::Version10 => 0x10,
+                    argon2::Version::Version13 => 0x13,
+                };
+                data.insert("V".to_string(), VariantDictionaryValue::UInt32(version));
+                VariantDictionary { data }
             }
         }
     }
