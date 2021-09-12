@@ -1,10 +1,15 @@
-use std::convert::TryFrom;
+use hex_literal::hex;
+use num_derive::FromPrimitive;
+use num_derive::ToPrimitive;
+use num_traits::FromPrimitive;
+use num_traits::ToPrimitive;
+use std::convert::{TryFrom, TryInto};
 
 use crate::{
     config::{Compression, InnerCipherSuite, KdfSettings, OuterCipherSuite},
     crypt,
     db::{DBVersion, Database, Header, InnerHeader},
-    hmac_block_stream,
+    hmac_block_stream, parse,
     result::{DatabaseIntegrityError, Error, Result},
     variant_dictionary::VariantDictionary,
     xml_parse,
@@ -12,7 +17,7 @@ use crate::{
 
 use byteorder::{ByteOrder, LittleEndian};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct KDBX4Header {
     // https://gist.github.com/msmuenchen/9318327
     pub version: u32,
@@ -30,6 +35,18 @@ pub struct KDBX4Header {
 pub struct BinaryAttachment {
     flags: u8,
     content: Vec<u8>,
+}
+
+#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+pub enum OuterHeaderFieldType {
+    END = 0,
+    COMMENT = 1,
+    CIPHERID = 2,
+    COMPRESSIONFLAGS = 3,
+    MASTERSEED = 4,
+    ENCRYPTIONIV = 7,
+    KDFPARAMS = 11,
 }
 
 impl TryFrom<&[u8]> for BinaryAttachment {
@@ -97,41 +114,41 @@ fn parse_outer_header(data: &[u8]) -> Result<KDBX4Header> {
 
         pos += 5 + entry_length;
 
-        match entry_type {
+        match FromPrimitive::from_u8(entry_type) {
             // END - finished parsing header
-            0 => {
+            Some(OuterHeaderFieldType::END) => {
                 break;
             }
 
             // COMMENT
-            1 => {}
+            Some(OuterHeaderFieldType::COMMENT) => {}
 
             // CIPHERID - a UUID specifying which cipher suite
             //            should be used to encrypt the payload
-            2 => {
+            Some(OuterHeaderFieldType::CIPHERID) => {
                 outer_cipher = Some(OuterCipherSuite::try_from(entry_buffer)?);
             }
 
             // COMPRESSIONFLAGS - first byte determines compression of payload
-            3 => {
+            Some(OuterHeaderFieldType::COMPRESSIONFLAGS) => {
                 compression = Some(Compression::try_from(LittleEndian::read_u32(
                     &entry_buffer,
                 ))?);
             }
 
             // MASTERSEED - Master seed for deriving the master key
-            4 => master_seed = Some(entry_buffer.to_vec()),
+            Some(OuterHeaderFieldType::MASTERSEED) => master_seed = Some(entry_buffer.to_vec()),
 
             // ENCRYPTIONIV - Initialization Vector for decrypting the payload
-            7 => outer_iv = Some(entry_buffer.to_vec()),
+            Some(OuterHeaderFieldType::ENCRYPTIONIV) => outer_iv = Some(entry_buffer.to_vec()),
 
             // KDF Parameters
-            11 => {
+            Some(OuterHeaderFieldType::KDFPARAMS) => {
                 let vd = VariantDictionary::parse(entry_buffer)?;
                 kdf = Some(KdfSettings::try_from(vd)?);
             }
 
-            _ => {
+            None => {
                 return Err(DatabaseIntegrityError::InvalidOuterHeaderEntry { entry_type }.into());
             }
         };
@@ -226,6 +243,111 @@ fn parse_inner_header(data: &[u8]) -> Result<KDBX4InnerHeader> {
         binaries,
         body_start: pos,
     })
+}
+
+/// This function will _grow_ buf by the necessary amount and write to it
+fn write_value_outer_header(buf: &mut Vec<u8>, field_type: OuterHeaderFieldType, data: &[u8]) {
+    let start_pos = buf.len();
+    // 1 byte for type, 4 for size, N for data
+    buf.resize(start_pos + 5 + data.len(), 0);
+    // entry type - 1 byte
+    buf[start_pos] = ToPrimitive::to_u8(&field_type).unwrap();
+    // entry length - 4 bytes
+    LittleEndian::write_u32(&mut buf[start_pos + 1..], data.len().try_into().unwrap());
+    if data.len() > 0 {
+        buf[start_pos + 5..].copy_from_slice(data);
+    }
+}
+fn serialize_outer_header(header: &KDBX4Header) -> Vec<u8> {
+    let mut vec = vec![0; 12];
+    vec[0..4].copy_from_slice(&parse::KDBX_IDENTIFIER);
+    // version
+    LittleEndian::write_u32(&mut vec[4..], 0xb54b_fb67);
+    // minor version
+    LittleEndian::write_u16(&mut vec[8..], 0);
+    // major version
+    LittleEndian::write_u16(&mut vec[10..], 4);
+
+    let cs: Vec<u8> = (&header.outer_cipher).into();
+    write_value_outer_header(&mut vec, OuterHeaderFieldType::CIPHERID, &cs);
+
+    let mut cr: [u8; 4] = [0, 0, 0, 0];
+    LittleEndian::write_u32(&mut cr, (&header.compression).into());
+    write_value_outer_header(&mut vec, OuterHeaderFieldType::COMPRESSIONFLAGS, &cr);
+
+    write_value_outer_header(
+        &mut vec,
+        OuterHeaderFieldType::MASTERSEED,
+        &header.master_seed,
+    );
+
+    write_value_outer_header(
+        &mut vec,
+        OuterHeaderFieldType::ENCRYPTIONIV,
+        &header.outer_iv,
+    );
+
+    let kdf_settings: Vec<u8> = (&header.kdf).into();
+    write_value_outer_header(&mut vec, OuterHeaderFieldType::KDFPARAMS, &kdf_settings);
+
+    write_value_outer_header(&mut vec, OuterHeaderFieldType::END, &vec![]);
+
+    /*
+    -pub outer_cipher: OuterCipherSuite,
+    -pub compression: Compression,
+    -pub master_seed: Vec<u8>,
+    -pub outer_iv: Vec<u8>,
+    pub kdf: KdfSettings,
+    pub body_start: usize,
+    */
+
+    /*
+    COMMENT = 1,
+    CIPHERID = 2,
+    COMPRESSIONFLAGS = 3,
+    MASTERSEED = 4,
+    ENCRYPTIONIV = 7,
+    KDFPARAMS = 11,
+    */
+
+    // (
+    //   entry_type: u8,                        // a numeric entry type identifier
+    //   entry_length: u32,                     // length of the entry buffer
+    //   entry_buffer: [u8; entry_length]       // the entry buffer
+    // )
+
+    /*
+        let entry_type = data[pos];
+        let entry_length: usize = LittleEndian::read_u32(&data[pos + 1..(pos + 5)]) as usize;
+        let entry_buffer = &data[(pos + 5)..(pos + 5 + entry_length)];
+    */
+    println!("{:#?}", vec);
+    vec
+}
+
+#[test]
+fn test_write_and_parse_outer_header() -> Result<()> {
+    // AES256
+    let cipherdata: Vec<u8> = hex!("31c1f2e6bf714350be5805216afc5aff").into();
+    let cipher = OuterCipherSuite::try_from(&cipherdata[..]).unwrap();
+    let header = KDBX4Header {
+        version: 0xb54b_fb67,
+        file_major_version: 4,
+        file_minor_version: 0,
+        outer_cipher: cipher,
+        compression: Compression::GZip,
+        master_seed: Vec::new(),
+        body_start: 0,
+        kdf: KdfSettings::Aes {
+            rounds: 1,
+            seed: Vec::new(),
+        },
+        outer_iv: Vec::new(),
+    };
+    let bytes = serialize_outer_header(&header);
+    let parsed = parse_outer_header(&bytes)?;
+    assert_eq!(header, parsed);
+    Ok(())
 }
 
 /// Open, decrypt and parse a KeePass database from a source and key elements

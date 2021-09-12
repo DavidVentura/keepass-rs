@@ -10,4 +10,12 @@ mod tests {
         println!("{}", String::from_utf8(res).unwrap());
         Ok(())
     }
+    #[test]
+    fn dump_kdbx4() -> Result<()> {
+        let path = Path::new("tests/resources/test_db_kdbx4_with_password_aes.kdbx");
+        let db = Database::open(&mut File::open(path)?, Some("demopass"), None)?;
+        let res = db.dump()?;
+        println!("{}", String::from_utf8(res).unwrap());
+        Ok(())
+    }
 }

@@ -1,10 +1,12 @@
 use hex_literal::hex;
-use std::convert::TryFrom;
+use std::collections::HashMap;
+use std::convert::{From, TryFrom};
 
 use crate::{
     compress, crypt,
     result::{DatabaseIntegrityError, Error, Result},
     variant_dictionary::VariantDictionary,
+    variant_dictionary::VariantDictionaryValue,
 };
 
 const _CIPHERSUITE_AES128: [u8; 16] = hex!("61ab05a1946441c38d743a563df8dd35");
@@ -12,7 +14,7 @@ const CIPHERSUITE_AES256: [u8; 16] = hex!("31c1f2e6bf714350be5805216afc5aff");
 const CIPHERSUITE_TWOFISH: [u8; 16] = hex!("ad68f29f576f4bb9a36ad47af965346c");
 const CIPHERSUITE_CHACHA20: [u8; 16] = hex!("d6038a2b8b6f4cb5a524339a31dbb59a");
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OuterCipherSuite {
     AES256,
     Twofish,
@@ -35,6 +37,15 @@ impl OuterCipherSuite {
     }
 }
 
+impl From<&OuterCipherSuite> for Vec<u8> {
+    fn from(c: &OuterCipherSuite) -> Vec<u8> {
+        match c {
+            OuterCipherSuite::AES256 => CIPHERSUITE_AES256.to_vec(),
+            OuterCipherSuite::Twofish => CIPHERSUITE_TWOFISH.to_vec(),
+            OuterCipherSuite::ChaCha20 => CIPHERSUITE_CHACHA20.to_vec(),
+        }
+    }
+}
 impl TryFrom<&[u8]> for OuterCipherSuite {
     type Error = Error;
     fn try_from(v: &[u8]) -> Result<OuterCipherSuite> {
@@ -80,7 +91,7 @@ impl TryFrom<u32> for InnerCipherSuite {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum KdfSettings {
     Aes {
         seed: Vec<u8>,
@@ -163,8 +174,36 @@ impl TryFrom<VariantDictionary> for KdfSettings {
         }
     }
 }
+impl From<&KdfSettings> for VariantDictionary {
+    fn from(ks: &KdfSettings) -> VariantDictionary {
+        match ks {
+            KdfSettings::Aes { seed, rounds } => {
+                let data: HashMap::new();
+                data.insert("R", rounds);
+                data.insert("S", seed);
+                VariantDictionary { data }
+            }
+            KdfSettings::Argon2 {
+                memory,
+                salt,
+                iterations,
+                parallelism,
+                version,
+            } => {
+                VariantDictionary {}
+                /*
+                let memory: u64 = vd.get("M")?;
+                let salt: Vec<u8> = vd.get("S")?;
+                let iterations: u64 = vd.get("I")?;
+                let parallelism: u32 = vd.get("P")?;
+                let version: u32 = vd.get("V")?;
+                */
+            }
+        }
+    }
+}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Compression {
     None,
     GZip,
@@ -188,6 +227,15 @@ impl TryFrom<u32> for Compression {
             0 => Ok(Compression::None),
             1 => Ok(Compression::GZip),
             _ => Err(DatabaseIntegrityError::InvalidCompressionSuite { cid: v }.into()),
+        }
+    }
+}
+
+impl From<&Compression> for u32 {
+    fn from(c: &Compression) -> u32 {
+        match c {
+            Compression::None => 0,
+            Compression::GZip => 1,
         }
     }
 }

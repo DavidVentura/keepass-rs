@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 #[derive(Debug)]
 pub(crate) struct VariantDictionary {
-    data: HashMap<String, VariantDictionaryValue>,
+    pub data: HashMap<String, VariantDictionaryValue>,
 }
 
 impl VariantDictionary {
