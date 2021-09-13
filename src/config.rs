@@ -61,7 +61,7 @@ impl TryFrom<&[u8]> for OuterCipherSuite {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InnerCipherSuite {
     Plain,
     Salsa20,
@@ -87,6 +87,16 @@ impl TryFrom<u32> for InnerCipherSuite {
             2 => Ok(InnerCipherSuite::Salsa20),
             3 => Ok(InnerCipherSuite::ChaCha20),
             _ => Err(DatabaseIntegrityError::InvalidInnerCipherID { cid: v }.into()),
+        }
+    }
+}
+
+impl From<&InnerCipherSuite> for u32 {
+    fn from(i: &InnerCipherSuite) -> u32 {
+        match i {
+            InnerCipherSuite::Plain => 0,
+            InnerCipherSuite::Salsa20 => 2,
+            InnerCipherSuite::ChaCha20 => 3,
         }
     }
 }

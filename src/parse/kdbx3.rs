@@ -10,7 +10,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use std::convert::TryFrom;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct KDBX3Header {
     // https://gist.github.com/msmuenchen/9318327
     pub version: u32,

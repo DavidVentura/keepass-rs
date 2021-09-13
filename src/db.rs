@@ -11,20 +11,20 @@ use crate::{
     result::{DatabaseIntegrityError, Error, Result},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Header {
     KDB(KDBHeader),
     KDBX3(KDBX3Header),
     KDBX4(KDBX4Header),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InnerHeader {
     None,
     KDBX4(KDBX4InnerHeader),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DBVersion {
     KDB2,
     KDB3,
@@ -32,7 +32,7 @@ pub enum DBVersion {
 }
 
 /// A decrypted KeePass database
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Database {
     /// Header information of the KeePass database
     pub header: Header,
@@ -114,8 +114,26 @@ impl Database {
         };
         Ok(cipher)
     }
-    pub fn dump(&self) -> Result<Vec<u8>> {
-        Ok(crate::parse::kdbx4::encrypt_xml(self).unwrap())
+    pub fn dump(
+        &self,
+        password: Option<&str>,
+        keyfile: Option<&mut dyn std::io::Read>,
+    ) -> Result<Vec<u8>> {
+        let mut key_elements: Vec<Vec<u8>> = Vec::new();
+
+        if let Some(p) = password {
+            key_elements.push(
+                crypt::calculate_sha256(&[p.as_bytes()])?
+                    .as_slice()
+                    .to_vec(),
+            );
+        }
+
+        if let Some(f) = keyfile {
+            key_elements.push(crate::keyfile::parse(f)?);
+        }
+        let key_elements: Vec<u8> = key_elements.into_iter().flatten().collect();
+        Ok(crate::parse::kdbx4::encrypt_xml(self, key_elements).unwrap())
     }
 
     /// Helper function to load a database into its internal XML chunks

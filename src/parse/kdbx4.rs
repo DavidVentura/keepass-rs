@@ -1,4 +1,4 @@
-//use hex_literal::hex;
+use byteorder::WriteBytesExt;
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
 use num_traits::FromPrimitive;
@@ -31,10 +31,20 @@ pub struct KDBX4Header {
     pub body_start: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BinaryAttachment {
     flags: u8,
     content: Vec<u8>,
+}
+
+#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[repr(u8)]
+#[allow(non_camel_case_types)]
+pub enum InnerHeaderFieldType {
+    END = 0,
+    RANDOM_STREAM_ID = 1,
+    RANDOM_STREAM_KEY = 2,
+    BINARY_ATTACHMENT = 3,
 }
 
 #[derive(Debug, FromPrimitive, ToPrimitive)]
@@ -59,8 +69,16 @@ impl TryFrom<&[u8]> for BinaryAttachment {
         Ok(BinaryAttachment { flags, content })
     }
 }
+impl From<&BinaryAttachment> for Vec<u8> {
+    fn from(b: &BinaryAttachment) -> Vec<u8> {
+        let mut res = Vec::new();
+        res.push(b.flags);
+        res.extend(&b.content);
+        res
+    }
+}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct KDBX4InnerHeader {
     inner_random_stream: InnerCipherSuite,
     inner_random_stream_key: Vec<u8>,
@@ -199,27 +217,21 @@ fn parse_inner_header(data: &[u8]) -> Result<KDBX4InnerHeader> {
 
         pos += 5 + entry_length;
 
-        match entry_type {
-            // end of header
-            0x00 => break,
-
-            // inner random stream ID
-            0x01 => {
+        match FromPrimitive::from_u8(entry_type) {
+            Some(InnerHeaderFieldType::END) => break,
+            Some(InnerHeaderFieldType::RANDOM_STREAM_ID) => {
                 inner_random_stream = Some(InnerCipherSuite::try_from(LittleEndian::read_u32(
                     &entry_buffer,
                 ))?);
             }
-
-            // inner random stream key
-            0x02 => inner_random_stream_key = Some(entry_buffer.to_vec()),
-
-            // binary attachment
-            0x03 => {
+            Some(InnerHeaderFieldType::RANDOM_STREAM_KEY) => {
+                inner_random_stream_key = Some(entry_buffer.to_vec())
+            }
+            Some(InnerHeaderFieldType::BINARY_ATTACHMENT) => {
                 let binary = BinaryAttachment::try_from(entry_buffer)?;
                 binaries.push(binary);
             }
-
-            _ => {
+            None => {
                 return Err(DatabaseIntegrityError::InvalidInnerHeaderEntry { entry_type }.into());
             }
         }
@@ -244,9 +256,32 @@ fn parse_inner_header(data: &[u8]) -> Result<KDBX4InnerHeader> {
         body_start: pos,
     })
 }
+fn serialize_inner_header(header: &KDBX4InnerHeader) -> Result<Vec<u8>> {
+    let mut buf: Vec<u8> = vec![];
+    let mut random_stream: Vec<u8> = vec![];
+
+    random_stream.write_u32::<LittleEndian>((&header.inner_random_stream).into())?;
+    write_value_inner_header(
+        &mut buf,
+        InnerHeaderFieldType::RANDOM_STREAM_ID,
+        &random_stream,
+    );
+
+    write_value_inner_header(
+        &mut buf,
+        InnerHeaderFieldType::RANDOM_STREAM_KEY,
+        &header.inner_random_stream_key,
+    );
+    for binary in &header.binaries {
+        let b_buf: Vec<u8> = binary.into();
+        write_value_inner_header(&mut buf, InnerHeaderFieldType::BINARY_ATTACHMENT, &b_buf);
+    }
+    write_value_inner_header(&mut buf, InnerHeaderFieldType::END, &[]);
+    Ok(buf)
+}
 
 /// This function will _grow_ buf by the necessary amount and write to it
-fn write_value_outer_header(buf: &mut Vec<u8>, field_type: OuterHeaderFieldType, data: &[u8]) {
+fn write_value_header(buf: &mut Vec<u8>, field_type: u8, data: &[u8]) {
     let start_pos = buf.len();
     // 1 byte for type, 4 for size, N for data
     buf.resize(start_pos + 5 + data.len(), 0);
@@ -257,6 +292,16 @@ fn write_value_outer_header(buf: &mut Vec<u8>, field_type: OuterHeaderFieldType,
     if data.len() > 0 {
         buf[start_pos + 5..].copy_from_slice(data);
     }
+}
+
+/// This function will _grow_ buf by the necessary amount and write to it
+fn write_value_inner_header(buf: &mut Vec<u8>, field_type: InnerHeaderFieldType, data: &[u8]) {
+    write_value_header(buf, ToPrimitive::to_u8(&field_type).unwrap(), data)
+}
+
+/// This function will _grow_ buf by the necessary amount and write to it
+fn write_value_outer_header(buf: &mut Vec<u8>, field_type: OuterHeaderFieldType, data: &[u8]) {
+    write_value_header(buf, ToPrimitive::to_u8(&field_type).unwrap(), data)
 }
 fn serialize_outer_header(header: &KDBX4Header) -> Vec<u8> {
     let mut vec = vec![0; 12];
@@ -292,32 +337,8 @@ fn serialize_outer_header(header: &KDBX4Header) -> Vec<u8> {
     write_value_outer_header(&mut vec, OuterHeaderFieldType::KDFPARAMS, &kdf_settings);
 
     write_value_outer_header(&mut vec, OuterHeaderFieldType::END, &vec![]);
-    vec
-}
 
-#[test]
-fn test_write_and_parse_outer_header() -> Result<()> {
-    // AES256
-    let cipherdata: Vec<u8> = hex_literal::hex!("31c1f2e6bf714350be5805216afc5aff").into();
-    let cipher = OuterCipherSuite::try_from(&cipherdata[..]).unwrap();
-    let header = KDBX4Header {
-        version: 0xb54b_fb67,
-        file_major_version: 4,
-        file_minor_version: 0,
-        outer_cipher: cipher,
-        compression: Compression::GZip,
-        master_seed: Vec::new(),
-        body_start: 122,
-        kdf: KdfSettings::Aes {
-            rounds: 1,
-            seed: Vec::new(),
-        },
-        outer_iv: Vec::new(),
-    };
-    let bytes = serialize_outer_header(&header);
-    let parsed = parse_outer_header(&bytes)?;
-    assert_eq!(header, parsed);
-    Ok(())
+    vec
 }
 
 /// Open, decrypt and parse a KeePass database from a source and key elements
@@ -379,9 +400,12 @@ pub(crate) fn decrypt_xml(
         return Err(Error::IncorrectKey);
     }
 
+    println!("about to read the block stream, {:?}", hmac_block_stream);
     // read encrypted payload from hmac-verified block stream
+    // FIXME: broken
     let payload_encrypted =
         hmac_block_stream::read_hmac_block_stream(&hmac_block_stream, &hmac_key)?;
+    println!("finished read the block stream");
 
     // Decrypt and decompress encrypted payload
     let payload_compressed = header
@@ -403,28 +427,49 @@ pub(crate) fn decrypt_xml(
 }
 
 /// Encrypt a KeePass KDBX4 database from representation and key elements
-pub(crate) fn encrypt_xml(
-    //key_elements: &[Vec<u8>],
-    d: &Database,
-) -> Result<Vec<u8>> {
-    /*
-    let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
-    let composite_key = crypt::calculate_sha256(&key_elements)?;
-    let transformed_key = header.kdf.get_kdf().transform_key(&composite_key)?;
-    let master_key = crypt::calculate_sha256(&[header.master_seed.as_ref(), &transformed_key])?;
-    */
+pub(crate) fn encrypt_xml(d: &Database, key_elements: Vec<u8>) -> Result<Vec<u8>> {
+    let mut payload = Vec::new();
 
-    /*
-    let header = match &d.header {
-        Header::KDBX4(h) => h,
-        Header::KDBX3(h) => h,
-        _ => panic!("Bad header found?"),
-    };
-    */
+    if let Header::KDBX4(h) = &d.header {
+        payload.extend(serialize_outer_header(&h));
 
-    let mut inner_encryptor = d.get_decryptor().unwrap();
+        let composite_key = crypt::calculate_sha256(&[key_elements.as_slice()]).unwrap();
+        let transformed_key = h.kdf.get_kdf().transform_key(&composite_key).unwrap();
+        let hmac_key =
+            crypt::calculate_sha512(&[&h.master_seed, &transformed_key, b"\x01"]).unwrap();
+        let header_hmac_key =
+            hmac_block_stream::get_hmac_block_key(u64::max_value(), &hmac_key).unwrap();
+        let header_hmac = crypt::calculate_hmac(&[&payload], &header_hmac_key).unwrap();
+        let header_sha256 = crypt::calculate_sha256(&[payload.as_slice()]).unwrap();
+        let master_key =
+            crypt::calculate_sha256(&[h.master_seed.as_ref(), &transformed_key]).unwrap();
 
-    let payload = xml_parse::write_xml(&d, &mut *inner_encryptor).unwrap();
+        payload.extend(header_sha256.as_slice());
+        payload.extend(header_hmac.as_slice());
+        // inner header
+        if let InnerHeader::KDBX4(ih) = &d.inner_header {
+            payload.extend(serialize_inner_header(&ih).unwrap());
+        }
+        // start with payload
+
+        let mut inner_encryptor = d.get_decryptor().unwrap();
+        let xml = xml_parse::write_xml(&d, &mut *inner_encryptor).unwrap();
+        // FIXME
+        let payload_compressed = h.compression.get_compression().compress(&xml).unwrap();
+        let payload_encrypted = h
+            .outer_cipher
+            .get_cipher(&master_key, h.outer_iv.as_ref())
+            .unwrap()
+            .encrypt(&payload_compressed)
+            .unwrap();
+
+        let payload_hmacd = hmac_block_stream::write_hmac_block_stream(payload_encrypted);
+        payload.extend(payload_hmacd);
+    } else {
+        panic!("expected kdb4");
+    }
+    // from here on it has to get encrypted
+
     /*
     let payload_compressed = header.compression.get_compression().compress(&xml)?;
 
@@ -434,4 +479,80 @@ pub(crate) fn encrypt_xml(
         .encrypt(&payload_compressed)?;
         */
     Ok(payload)
+}
+
+#[cfg(test)]
+mod test {
+
+    use crate::{
+        config::{Compression, InnerCipherSuite, KdfSettings, OuterCipherSuite},
+        db::Database,
+        parse::kdbx4::*,
+        result::Result,
+    };
+    use std::{fs::File, path::Path};
+
+    use hex_literal::hex;
+
+    #[test]
+    fn test_encrypt_decrypt_xml() -> Result<()> {
+        let mut key_elements: Vec<Vec<u8>> = Vec::new();
+
+        key_elements.push(
+            crypt::calculate_sha256(&["demopass".as_bytes()])?
+                .as_slice()
+                .to_vec(),
+        );
+
+        let key_elements: Vec<u8> = key_elements.into_iter().flatten().collect();
+
+        let path = Path::new("tests/resources/test_db_kdbx4_with_password_aes.kdbx");
+        let db = Database::open(&mut File::open(path)?, Some("demopass"), None)?;
+        println!("parsed thing");
+
+        let encrypted = encrypt_xml(&db, key_elements.clone()).unwrap();
+        let parsed_db = parse(&encrypted, &[key_elements]).unwrap();
+
+        assert_eq!(parsed_db, db);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_and_parse_outer_header() -> Result<()> {
+        // AES256
+        let cipherdata: Vec<u8> = hex!("31c1f2e6bf714350be5805216afc5aff").into();
+        let cipher = OuterCipherSuite::try_from(&cipherdata[..]).unwrap();
+        let header = KDBX4Header {
+            version: 0xb54b_fb67,
+            file_major_version: 4,
+            file_minor_version: 0,
+            outer_cipher: cipher,
+            compression: Compression::GZip,
+            master_seed: Vec::new(),
+            body_start: 122,
+            kdf: KdfSettings::Aes {
+                rounds: 1,
+                seed: Vec::new(),
+            },
+            outer_iv: Vec::new(),
+        };
+        let bytes = serialize_outer_header(&header);
+        let parsed = parse_outer_header(&bytes)?;
+        assert_eq!(header, parsed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_and_parse_inner_header() -> Result<()> {
+        let h = KDBX4InnerHeader {
+            binaries: vec![],
+            body_start: 25,
+            inner_random_stream: InnerCipherSuite::ChaCha20,
+            inner_random_stream_key: vec![1, 2, 3, 4, 5, 6],
+        };
+        let serialized = serialize_inner_header(&h).unwrap();
+        let parsed = parse_inner_header(&serialized).unwrap();
+        assert_eq!(h, parsed);
+        Ok(())
+    }
 }
