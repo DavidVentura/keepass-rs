@@ -1,5 +1,6 @@
 use crate::crypt::ciphers::Cipher;
 use crate::result::{DatabaseIntegrityError, Error, Result};
+use byteorder::{LittleEndian, WriteBytesExt};
 
 use secstr::SecStr;
 
@@ -79,6 +80,7 @@ impl Serializable for Entry {
             match self.fields.get(field_name) {
                 Some(&Value::Bytes(_)) => {
                     w.write(WXmlEvent::start_element("Value"))?;
+                    // FIXME: no bytes value
                     w.write(WXmlEvent::end_element())?;
                 }
                 Some(&Value::Protected(ref pv)) => {
@@ -111,12 +113,24 @@ impl Serializable for Entry {
 
             w.write(WXmlEvent::end_element())?;
         }
-        // AutoType, History
+        // AutoType
         if self.history.len() > 0 {
             w.write(WXmlEvent::start_element("History"))?;
             for history_item in &self.history {
                 history_item.serialize(w, encryptor)?;
             }
+            w.write(WXmlEvent::end_element())?;
+        }
+
+        let start =
+            chrono::NaiveDateTime::parse_from_str("0001-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")
+                .unwrap()
+                .timestamp();
+        for (key, value) in &self.times {
+            let mut ts_bytes = vec![];
+            ts_bytes.write_i64::<LittleEndian>(value.timestamp() - start)?;
+            w.write(WXmlEvent::start_element(key.as_str()))?;
+            w.write(WXmlEvent::characters(base64::encode(ts_bytes).as_str()))?;
             w.write(WXmlEvent::end_element())?;
         }
 
@@ -191,6 +205,17 @@ impl Serializable for Group {
             };
         }
 
+        let start =
+            chrono::NaiveDateTime::parse_from_str("0001-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")
+                .unwrap()
+                .timestamp();
+        for (key, value) in &self.times {
+            let mut ts_bytes = vec![];
+            ts_bytes.write_i64::<LittleEndian>(value.timestamp() - start)?;
+            w.write(WXmlEvent::start_element(key.as_str()))?;
+            w.write(WXmlEvent::characters(base64::encode(ts_bytes).as_str()))?;
+            w.write(WXmlEvent::end_element())?;
+        }
         w.write(WXmlEvent::end_element())?;
         Ok(())
     }
@@ -221,10 +246,11 @@ fn parse_xml_timestamp(t: &str) -> Result<chrono::NaiveDateTime> {
             // Cast the Vec created by base64::decode into the array expected by i64::from_le_bytes
             let mut a: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
             a.copy_from_slice(&v[0..8]);
+            let sec = i64::from_le_bytes(a);
             let ndt =
                 chrono::NaiveDateTime::parse_from_str("0001-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")
                     .unwrap()
-                    + chrono::Duration::seconds(i64::from_le_bytes(a));
+                    + chrono::Duration::seconds(sec);
             Ok(ndt)
         }
     }
