@@ -259,7 +259,6 @@ pub struct Group {
 
     pub notes: String,
     pub icon_id: u32,
-    // pub times: ??,
     pub is_expanded: bool,
     // pub defaultAutoTypeSequence: bool,
     pub enable_auto_type: Option<bool>,
