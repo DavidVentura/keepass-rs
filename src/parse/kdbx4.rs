@@ -1,4 +1,4 @@
-use hex_literal::hex;
+//use hex_literal::hex;
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
 use num_traits::FromPrimitive;
@@ -287,48 +287,18 @@ fn serialize_outer_header(header: &KDBX4Header) -> Vec<u8> {
         &header.outer_iv,
     );
 
-    let kdf_settings: Vec<u8> = (&header.kdf).into();
+    let kdf_dict: VariantDictionary = (&header.kdf).into();
+    let kdf_settings: Vec<u8> = kdf_dict.serialize().unwrap();
     write_value_outer_header(&mut vec, OuterHeaderFieldType::KDFPARAMS, &kdf_settings);
 
     write_value_outer_header(&mut vec, OuterHeaderFieldType::END, &vec![]);
-
-    /*
-    -pub outer_cipher: OuterCipherSuite,
-    -pub compression: Compression,
-    -pub master_seed: Vec<u8>,
-    -pub outer_iv: Vec<u8>,
-    pub kdf: KdfSettings,
-    pub body_start: usize,
-    */
-
-    /*
-    COMMENT = 1,
-    CIPHERID = 2,
-    COMPRESSIONFLAGS = 3,
-    MASTERSEED = 4,
-    ENCRYPTIONIV = 7,
-    KDFPARAMS = 11,
-    */
-
-    // (
-    //   entry_type: u8,                        // a numeric entry type identifier
-    //   entry_length: u32,                     // length of the entry buffer
-    //   entry_buffer: [u8; entry_length]       // the entry buffer
-    // )
-
-    /*
-        let entry_type = data[pos];
-        let entry_length: usize = LittleEndian::read_u32(&data[pos + 1..(pos + 5)]) as usize;
-        let entry_buffer = &data[(pos + 5)..(pos + 5 + entry_length)];
-    */
-    println!("{:#?}", vec);
     vec
 }
 
 #[test]
 fn test_write_and_parse_outer_header() -> Result<()> {
     // AES256
-    let cipherdata: Vec<u8> = hex!("31c1f2e6bf714350be5805216afc5aff").into();
+    let cipherdata: Vec<u8> = hex_literal::hex!("31c1f2e6bf714350be5805216afc5aff").into();
     let cipher = OuterCipherSuite::try_from(&cipherdata[..]).unwrap();
     let header = KDBX4Header {
         version: 0xb54b_fb67,
@@ -337,7 +307,7 @@ fn test_write_and_parse_outer_header() -> Result<()> {
         outer_cipher: cipher,
         compression: Compression::GZip,
         master_seed: Vec::new(),
-        body_start: 0,
+        body_start: 122,
         kdf: KdfSettings::Aes {
             rounds: 1,
             seed: Vec::new(),

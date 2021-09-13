@@ -176,12 +176,19 @@ impl TryFrom<VariantDictionary> for KdfSettings {
 }
 impl From<&KdfSettings> for VariantDictionary {
     fn from(ks: &KdfSettings) -> VariantDictionary {
+        let mut data = HashMap::<String, VariantDictionaryValue>::new();
         match ks {
             KdfSettings::Aes { seed, rounds } => {
-                let data = HashMap::<String, VariantDictionaryValue>::new();
+                data.insert(
+                    "$UUID".to_string(),
+                    VariantDictionaryValue::ByteArray(KDF_AES_KDBX4.to_vec()),
+                );
+                // FIXME hardcoded KDBX4
                 data.insert("R".to_string(), VariantDictionaryValue::UInt64(*rounds));
-                data.insert("S".to_string(), VariantDictionaryValue::ByteArray(*seed));
-                VariantDictionary { data }
+                data.insert(
+                    "S".to_string(),
+                    VariantDictionaryValue::ByteArray(seed.clone()),
+                );
             }
             KdfSettings::Argon2 {
                 memory,
@@ -190,9 +197,16 @@ impl From<&KdfSettings> for VariantDictionary {
                 parallelism,
                 version,
             } => {
-                let data = HashMap::<String, VariantDictionaryValue>::new();
+                let mut data = HashMap::<String, VariantDictionaryValue>::new();
+                data.insert(
+                    "$UUID".to_string(),
+                    VariantDictionaryValue::ByteArray(KDF_ARGON2.to_vec()),
+                );
                 data.insert("M".to_string(), VariantDictionaryValue::UInt64(*memory));
-                data.insert("S".to_string(), VariantDictionaryValue::ByteArray(*salt));
+                data.insert(
+                    "S".to_string(),
+                    VariantDictionaryValue::ByteArray(salt.clone()),
+                );
                 data.insert("I".to_string(), VariantDictionaryValue::UInt64(*iterations));
                 data.insert(
                     "P".to_string(),
@@ -204,9 +218,9 @@ impl From<&KdfSettings> for VariantDictionary {
                     argon2::Version::Version13 => 0x13,
                 };
                 data.insert("V".to_string(), VariantDictionaryValue::UInt32(version));
-                VariantDictionary { data }
             }
-        }
+        };
+        VariantDictionary { data }
     }
 }
 
