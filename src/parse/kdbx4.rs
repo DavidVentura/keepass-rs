@@ -400,12 +400,8 @@ pub(crate) fn decrypt_xml(
         return Err(Error::IncorrectKey);
     }
 
-    println!("about to read the block stream, {:?}", hmac_block_stream);
-    // read encrypted payload from hmac-verified block stream
-    // FIXME: broken
     let payload_encrypted =
         hmac_block_stream::read_hmac_block_stream(&hmac_block_stream, &hmac_key)?;
-    println!("finished read the block stream");
 
     // Decrypt and decompress encrypted payload
     let payload_compressed = header
@@ -446,16 +442,24 @@ pub(crate) fn encrypt_xml(d: &Database, key_elements: Vec<u8>) -> Result<Vec<u8>
 
         payload.extend(header_sha256.as_slice());
         payload.extend(header_hmac.as_slice());
-        // inner header
-        if let InnerHeader::KDBX4(ih) = &d.inner_header {
-            payload.extend(serialize_inner_header(&ih).unwrap());
-        }
         // start with payload
+
+        let mut inner_payload = vec![];
 
         let mut inner_encryptor = d.get_decryptor().unwrap();
         let xml = xml_parse::write_xml(&d, &mut *inner_encryptor).unwrap();
+
+        // inner header
+        if let InnerHeader::KDBX4(ih) = &d.inner_header {
+            inner_payload.extend(serialize_inner_header(&ih).unwrap());
+        }
+        inner_payload.extend(xml);
         // FIXME
-        let payload_compressed = h.compression.get_compression().compress(&xml).unwrap();
+        let payload_compressed = h
+            .compression
+            .get_compression()
+            .compress(&inner_payload)
+            .unwrap();
         let payload_encrypted = h
             .outer_cipher
             .get_cipher(&master_key, h.outer_iv.as_ref())
@@ -463,7 +467,8 @@ pub(crate) fn encrypt_xml(d: &Database, key_elements: Vec<u8>) -> Result<Vec<u8>
             .encrypt(&payload_compressed)
             .unwrap();
 
-        let payload_hmacd = hmac_block_stream::write_hmac_block_stream(payload_encrypted);
+        let payload_hmacd =
+            hmac_block_stream::write_hmac_block_stream(&payload_encrypted, &hmac_key).unwrap();
         payload.extend(payload_hmacd);
     } else {
         panic!("expected kdb4");
@@ -483,6 +488,7 @@ pub(crate) fn encrypt_xml(d: &Database, key_elements: Vec<u8>) -> Result<Vec<u8>
 
 #[cfg(test)]
 mod test {
+    use pretty_assertions::assert_eq;
 
     use crate::{
         config::{Compression, InnerCipherSuite, KdfSettings, OuterCipherSuite},
