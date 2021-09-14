@@ -78,7 +78,7 @@ impl Serializable for Entry {
         w.write(WXmlEvent::end_element())?;
 
         write_simple_element(w, "Expires", if self.expires { "True" } else { "False" })?;
-        // ForegroundColor, BackgroundColor, OverrideURL, Tags, Times
+        // ForegroundColor, BackgroundColor, OverrideURL, Tags
 
         for field_name in self.fields.keys() {
             w.write(WXmlEvent::start_element("String"))?;
@@ -143,6 +143,7 @@ impl Serializable for Entry {
             chrono::NaiveDateTime::parse_from_str("0001-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")
                 .unwrap()
                 .timestamp();
+        w.write(WXmlEvent::start_element("Times"))?;
         for (key, value) in &self.times {
             let mut ts_bytes = vec![];
             ts_bytes.write_i64::<LittleEndian>(value.timestamp() - start)?;
@@ -150,6 +151,7 @@ impl Serializable for Entry {
             w.write(WXmlEvent::characters(base64::encode(ts_bytes).as_str()))?;
             w.write(WXmlEvent::end_element())?;
         }
+        w.write(WXmlEvent::end_element())?;
 
         w.write(WXmlEvent::end_element())?;
         Ok(())
@@ -213,17 +215,11 @@ impl Serializable for Group {
         ))?;
         w.write(WXmlEvent::end_element())?;
 
-        for node in &self.children {
-            match node {
-                DBNode::Group(g) => g.serialize(w, encryptor)?,
-                DBNode::Entry(e) => e.serialize(w, encryptor)?,
-            };
-        }
-
         let start =
             chrono::NaiveDateTime::parse_from_str("0001-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")
                 .unwrap()
                 .timestamp();
+        w.write(WXmlEvent::start_element("Times"))?;
         for (key, value) in &self.times {
             let mut ts_bytes = vec![];
             ts_bytes.write_i64::<LittleEndian>(value.timestamp() - start)?;
@@ -231,6 +227,15 @@ impl Serializable for Group {
             w.write(WXmlEvent::characters(base64::encode(ts_bytes).as_str()))?;
             w.write(WXmlEvent::end_element())?;
         }
+        w.write(WXmlEvent::end_element())?;
+
+        for node in &self.children {
+            match node {
+                DBNode::Group(g) => g.serialize(w, encryptor)?,
+                DBNode::Entry(e) => e.serialize(w, encryptor)?,
+            };
+        }
+
         w.write(WXmlEvent::end_element())?;
         Ok(())
     }
@@ -244,7 +249,9 @@ impl Serializable for Database {
     ) -> WResult<()> {
         w.write(WXmlEvent::start_element("KeePassFile"))?;
         self.meta.serialize(w, encryptor)?;
+        w.write(WXmlEvent::start_element("Root"))?;
         self.root.serialize(w, encryptor)?;
+        w.write(WXmlEvent::end_element())?;
         w.write(WXmlEvent::end_element())?;
         Ok(())
     }
