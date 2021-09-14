@@ -282,16 +282,10 @@ fn serialize_inner_header(header: &KDBX4InnerHeader) -> Result<Vec<u8>> {
 
 /// This function will _grow_ buf by the necessary amount and write to it
 fn write_value_header(buf: &mut Vec<u8>, field_type: u8, data: &[u8]) {
-    let start_pos = buf.len();
-    // 1 byte for type, 4 for size, N for data
-    buf.resize(start_pos + 5 + data.len(), 0);
-    // entry type - 1 byte
-    buf[start_pos] = ToPrimitive::to_u8(&field_type).unwrap();
-    // entry length - 4 bytes
-    LittleEndian::write_u32(&mut buf[start_pos + 1..], data.len().try_into().unwrap());
-    if data.len() > 0 {
-        buf[start_pos + 5..].copy_from_slice(data);
-    }
+    buf.push(ToPrimitive::to_u8(&field_type).unwrap());
+    buf.write_u32::<LittleEndian>(data.len().try_into().unwrap())
+        .unwrap();
+    buf.extend(data);
 }
 
 /// This function will _grow_ buf by the necessary amount and write to it
@@ -335,10 +329,11 @@ fn serialize_outer_header(header: &KDBX4Header) -> Vec<u8> {
     let kdf_dict: VariantDictionary = (&header.kdf).into();
     let kdf_settings: Vec<u8> = kdf_dict.serialize().unwrap();
     write_value_outer_header(&mut vec, OuterHeaderFieldType::KDFPARAMS, &kdf_settings);
-
-    // adding 4 bytes as this is what KeepassXC does. Not sure why.
-    write_value_outer_header(&mut vec, OuterHeaderFieldType::END, &vec![0, 0, 0, 0]);
-
+    write_value_outer_header(
+        &mut vec,
+        OuterHeaderFieldType::END,
+        &vec![13, 10, 13, 10], // "\r\n\r\n" is what keepassxc writes
+    );
     vec
 }
 
@@ -512,6 +507,7 @@ mod test {
 
         assert_eq!(parsed_db.inner_header, db.inner_header);
         assert_eq!(parsed_db.root, db.root);
+
         assert_eq!(parsed_db.meta, db.meta);
         assert_eq!(parsed_db.version, db.version);
         assert_eq!(parsed_db.header, db.header);
