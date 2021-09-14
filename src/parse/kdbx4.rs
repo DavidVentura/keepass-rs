@@ -336,7 +336,8 @@ fn serialize_outer_header(header: &KDBX4Header) -> Vec<u8> {
     let kdf_settings: Vec<u8> = kdf_dict.serialize().unwrap();
     write_value_outer_header(&mut vec, OuterHeaderFieldType::KDFPARAMS, &kdf_settings);
 
-    write_value_outer_header(&mut vec, OuterHeaderFieldType::END, &vec![]);
+    // adding 4 bytes as this is what KeepassXC does. Not sure why.
+    write_value_outer_header(&mut vec, OuterHeaderFieldType::END, &vec![0, 0, 0, 0]);
 
     vec
 }
@@ -454,7 +455,7 @@ pub(crate) fn encrypt_xml(d: &Database, key_elements: Vec<u8>) -> Result<Vec<u8>
             inner_payload.extend(serialize_inner_header(&ih).unwrap());
         }
         inner_payload.extend(xml);
-        // FIXME
+
         let payload_compressed = h
             .compression
             .get_compression()
@@ -473,16 +474,7 @@ pub(crate) fn encrypt_xml(d: &Database, key_elements: Vec<u8>) -> Result<Vec<u8>
     } else {
         panic!("expected kdb4");
     }
-    // from here on it has to get encrypted
 
-    /*
-    let payload_compressed = header.compression.get_compression().compress(&xml)?;
-
-    let encrypted = header
-        .outer_cipher
-        .get_cipher(&master_key, header.outer_iv.as_ref())?
-        .encrypt(&payload_compressed)?;
-        */
     Ok(payload)
 }
 
@@ -514,11 +506,15 @@ mod test {
 
         let path = Path::new("tests/resources/test_db_kdbx4_with_password_aes.kdbx");
         let db = Database::open(&mut File::open(path)?, Some("demopass"), None)?;
-        println!("parsed thing");
 
         let encrypted = encrypt_xml(&db, key_elements.clone()).unwrap();
         let parsed_db = parse(&encrypted, &[key_elements]).unwrap();
 
+        assert_eq!(parsed_db.inner_header, db.inner_header);
+        assert_eq!(parsed_db.root, db.root);
+        assert_eq!(parsed_db.meta, db.meta);
+        assert_eq!(parsed_db.version, db.version);
+        assert_eq!(parsed_db.header, db.header);
         assert_eq!(parsed_db, db);
         Ok(())
     }
@@ -535,7 +531,7 @@ mod test {
             outer_cipher: cipher,
             compression: Compression::GZip,
             master_seed: Vec::new(),
-            body_start: 122,
+            body_start: 127,
             kdf: KdfSettings::Aes {
                 rounds: 1,
                 seed: Vec::new(),

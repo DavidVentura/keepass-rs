@@ -111,6 +111,8 @@ impl VariantDictionary {
             data.write_u32::<LittleEndian>(value_buf.len() as u32)?;
             data.extend(&value_buf);
         }
+        // adding 1 byte as this is what KeepassXC does. Not sure why.
+        data.push(0);
         Ok(data)
     }
 
