@@ -36,6 +36,13 @@ pub(crate) trait Serializable {
     ) -> WResult<()>;
 }
 
+fn write_simple_element<W: Write>(w: &mut EventWriter<W>, tag: &str, value: &str) -> WResult<()> {
+    w.write(WXmlEvent::start_element(tag))?;
+    w.write(WXmlEvent::characters(value))?;
+    w.write(WXmlEvent::end_element())?;
+    Ok(())
+}
+
 impl Serializable for Meta {
     fn serialize<W: Write>(
         &self,
@@ -70,6 +77,7 @@ impl Serializable for Entry {
         w.write(WXmlEvent::characters(&self.icon_id.to_string()))?;
         w.write(WXmlEvent::end_element())?;
 
+        write_simple_element(w, "Expires", if self.expires { "True" } else { "False" })?;
         // ForegroundColor, BackgroundColor, OverrideURL, Tags, Times
 
         for field_name in self.fields.keys() {
@@ -113,7 +121,16 @@ impl Serializable for Entry {
 
             w.write(WXmlEvent::end_element())?;
         }
-        // AutoType
+
+        if let Some(at) = &self.autotype {
+            w.write(WXmlEvent::start_element("AutoType"))?;
+            write_simple_element(w, "Enabled", if at.enabled { "True" } else { "False" })?;
+            if let Some(seq) = &at.sequence {
+                write_simple_element(w, "DefaultSequence", seq)?;
+            }
+            w.write(WXmlEvent::end_element())?;
+        }
+
         if self.history.len() > 0 {
             w.write(WXmlEvent::start_element("History"))?;
             for history_item in &self.history {
@@ -163,8 +180,6 @@ impl Serializable for Group {
         w.write(WXmlEvent::start_element("IconID"))?;
         w.write(WXmlEvent::characters(&self.icon_id.to_string()))?;
         w.write(WXmlEvent::end_element())?;
-
-        // TIMES ??
 
         w.write(WXmlEvent::start_element("IsExpanded"))?;
         w.write(WXmlEvent::characters(&self.is_expanded.to_string()))?;
