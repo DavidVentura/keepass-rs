@@ -56,21 +56,26 @@ pub(crate) fn write_hmac_block_stream(data: &[u8], key: &GenericArray<u8, U64>) 
     // by asserting that we have at most 2^32-1 bytes
     // we know that there is only 1 block to encode
     let mut out = Vec::new();
-    let block_index = 0;
+    let mut block_index = 0;
 
-    let mut block_index_buf = [0u8; 8];
-    LittleEndian::write_u64(&mut block_index_buf, block_index as u64);
-    let hmac_block_key = get_hmac_block_key(block_index, key)?;
+    for _data in [data, &[]] {
+        let mut block_index_buf = [0u8; 8];
+        LittleEndian::write_u64(&mut block_index_buf, block_index as u64);
+        let hmac_block_key = get_hmac_block_key(block_index, key)?;
 
-    let mut size_bytes = vec![];
-    size_bytes.write_u32::<LittleEndian>(data.len() as u32)?;
+        let mut size_bytes = vec![];
+        size_bytes.write_u32::<LittleEndian>(_data.len() as u32)?;
 
-    let hmac =
-        crate::crypt::calculate_hmac(&[&block_index_buf, &size_bytes, &data], &hmac_block_key)?;
+        let hmac = crate::crypt::calculate_hmac(
+            &[&block_index_buf, &size_bytes, &_data],
+            &hmac_block_key,
+        )?;
 
-    out.extend_from_slice(&hmac);
-    out.extend_from_slice(&size_bytes);
-    out.extend_from_slice(data);
+        out.extend_from_slice(&hmac);
+        out.extend_from_slice(&size_bytes);
+        out.extend_from_slice(_data);
+        block_index += 1;
+    }
     Ok(out)
 }
 
