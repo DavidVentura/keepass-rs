@@ -191,9 +191,10 @@ impl From<&KdfSettings> for VariantDictionary {
             KdfSettings::Aes { seed, rounds } => {
                 data.insert(
                     "$UUID".to_string(),
-                    VariantDictionaryValue::ByteArray(KDF_AES_KDBX4.to_vec()),
+                    VariantDictionaryValue::ByteArray(KDF_AES_KDBX3.to_vec()),
                 );
-                // FIXME hardcoded KDBX4
+                // The only official UUID for this KDF is the KDBX3 one
+                // https://sourceforge.net/p/keepass/discussion/329220/thread/8df9a61d7f/?limit=25#f8f7
                 data.insert("R".to_string(), VariantDictionaryValue::UInt64(*rounds));
                 data.insert(
                     "S".to_string(),
