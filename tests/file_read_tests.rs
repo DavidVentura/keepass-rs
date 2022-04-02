@@ -265,6 +265,7 @@ mod tests {
         let group = &recycle_group[0];
         if let NodeRef::Group(g) = group {
             assert_eq!(g.name, "Recycle Bin");
+            Ok(())
         } else {
             panic!("It should've matched a Group!");
         }
@@ -280,17 +281,15 @@ mod tests {
 
         let mut total_groups = 0;
         let mut total_entries = 0;
+        assert!(db.meta.binaries.contains_key("0"));
+        assert_eq!(db.meta.binaries.get("0").unwrap().len(), 2097152);
         for node in &db.root {
             match node {
-                NodeRef::Group(g) => {
-                    println!("Saw group '{0}'", g.name);
+                NodeRef::Group(_) => {
                     total_groups += 1;
                 }
                 NodeRef::Entry(e) => {
-                    let title = e.get_title().unwrap();
-                    let user = e.get_username().unwrap();
-                    let pass = e.get_password().unwrap();
-                    println!("Entry '{0}': '{1}' : '{2}'", title, user, pass);
+                    assert_eq!(e.binary_refs.get("sample.png").unwrap(), "0");
                     total_entries += 1;
                 }
             }

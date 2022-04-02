@@ -190,6 +190,7 @@ impl Database {
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Meta {
     pub recyclebin_uuid: String,
+    pub binaries: HashMap<String, Vec<u8>>,
     pub unhandled_fields: HashMap<String, String>,
     pub custom_data: HashMap<String, String>,
     pub memory_protection: HashMap<String, String>,
@@ -391,6 +392,7 @@ impl<'a> std::convert::From<&'a mut Node> for NodeRefMut<'a> {
 /// A database entry containing several key-value fields.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Entry {
+    pub binary_refs: HashMap<String, String>,
     pub fields: HashMap<String, Value>,
     pub autotype: Option<AutoType>,
     pub expires: bool,
