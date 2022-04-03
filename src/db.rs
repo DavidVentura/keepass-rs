@@ -190,7 +190,7 @@ impl Database {
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Meta {
     pub recyclebin_uuid: String,
-    pub binaries: HashMap<String, Vec<u8>>,
+    pub binaries: Vec<Vec<u8>>,
     pub unhandled_fields: HashMap<String, String>,
     pub custom_data: HashMap<String, String>,
     pub memory_protection: HashMap<String, String>,
@@ -392,7 +392,6 @@ impl<'a> std::convert::From<&'a mut Node> for NodeRefMut<'a> {
 /// A database entry containing several key-value fields.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Entry {
-    pub binary_refs: HashMap<String, String>,
     pub fields: HashMap<String, Value>,
     pub autotype: Option<AutoType>,
     pub expires: bool,
@@ -402,6 +401,7 @@ pub struct Entry {
     pub history: Vec<Entry>,
     pub unhandled_fields: HashMap<String, String>,
     pub custom_data: HashMap<String, String>,
+    pub binary_refs: HashMap<String, usize>,
 }
 
 impl<'a> Entry {
@@ -454,6 +454,26 @@ impl<'a> Entry {
     /// Convenience method for getting the value of the 'Password' field
     pub fn get_password(&'a self) -> Option<&'a str> {
         self.get("Password")
+    }
+
+    pub fn get_binary<'b>(&'a self, key: &str, db: &'b Database) -> Option<&'b [u8]> {
+        let opt_key = self.binary_refs.get(key)?;
+
+        match db.version {
+            DBVersion::KDB3 => {
+                let b = db.meta.binaries.get(opt_key.clone())?;
+                Some(&b)
+            }
+            DBVersion::KDB4 => {
+                if let InnerHeader::KDBX4(header) = &db.inner_header {
+                    let b = header.binaries.get(opt_key.clone())?;
+                    Some(&b.content)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 }
 

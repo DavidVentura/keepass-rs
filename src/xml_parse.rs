@@ -303,8 +303,7 @@ fn parse_meta(e: &Element) -> Meta {
                                 data = raw_data;
                             }
 
-                            meta.binaries
-                                .insert(el.attributes.get("ID").unwrap().clone(), data);
+                            meta.binaries.push(data);
                         }
                     }
                 }
@@ -451,7 +450,7 @@ fn parse_entry(e: &Element, inner_cipher: &mut dyn Cipher) -> Entry {
                 }
                 "Binary" => {
                     let (k, r) = get_entry_binary_ref(el);
-                    entry.binary_refs.insert(k, r);
+                    entry.binary_refs.insert(k, r.parse::<usize>().unwrap());
                 }
                 "String" => {
                     let (k, v) = get_kv_pair(el, inner_cipher);
