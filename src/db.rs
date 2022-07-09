@@ -242,28 +242,21 @@ impl Group {
         } else {
             if path.len() == 1 {
                 let head = path[0];
-                self.children
-                    .iter()
-                    .filter_map(|n| match n {
-                        Node::Group(_) => None,
-                        Node::Entry(e) => {
-                            e.get_title()
-                                .and_then(|t| if t == head { Some(n.to_ref()) } else { None })
-                        }
-                    })
-                    .next()
+                self.children.iter().find_map(|n| match n {
+                    Node::Group(_) => None,
+                    Node::Entry(e) => {
+                        e.get_title()
+                            .and_then(|t| if t == head { Some(n.to_ref()) } else { None })
+                    }
+                })
             } else {
                 let head = path[0];
                 let tail = &path[1..path.len()];
 
-                let head_group = self
-                    .children
-                    .iter()
-                    .filter_map(|n| match n {
-                        Node::Group(g) if g.name == head => Some(g),
-                        _ => None,
-                    })
-                    .next()?;
+                let head_group = self.children.iter().find_map(|n| match n {
+                    Node::Group(g) if g.name == head => Some(g),
+                    _ => None,
+                })?;
 
                 head_group.get(tail)
             }
@@ -290,14 +283,10 @@ impl Group {
                 let head = path[0];
                 let tail = &path[1..path.len()];
 
-                let head_group: &mut Group = self
-                    .children
-                    .iter_mut()
-                    .filter_map(|n| match n {
-                        Node::Group(g) if g.name == head => Some(g),
-                        _ => None,
-                    })
-                    .next()?;
+                let head_group: &mut Group = self.children.iter_mut().find_map(|n| match n {
+                    Node::Group(g) if g.name == head => Some(g),
+                    _ => None,
+                })?;
 
                 head_group.get_mut(tail)
             }
