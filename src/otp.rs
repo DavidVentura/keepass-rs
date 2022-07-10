@@ -1,5 +1,6 @@
 use base32;
 use std::borrow::Cow;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_lite::{totp_custom, Sha1, Sha256, Sha512};
 use url::Url;
@@ -22,6 +23,24 @@ pub struct TOTP {
     period: u64,
     digits: u32,
     algorithm: AlgoType,
+}
+
+pub struct OTPCode {
+    pub code: String,
+    pub valid_for: Duration,
+    pub period: Duration,
+}
+
+impl std::fmt::Display for OTPCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Code: {}, valid for: {}/{}s",
+            self.code,
+            self.valid_for.as_secs(),
+            self.period.as_secs(),
+        )
+    }
 }
 
 impl TOTP {
@@ -75,17 +94,23 @@ impl TOTP {
             algorithm,
         })
     }
-    pub fn current_value(&self) -> String {
+    pub fn current_value(&self) -> OTPCode {
         let time: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        let result = match self.algorithm {
+        let code = match self.algorithm {
             AlgoType::Sha1 => totp_custom::<Sha1>(self.period, self.digits, &self.secret, time),
             AlgoType::Sha256 => totp_custom::<Sha256>(self.period, self.digits, &self.secret, time),
             AlgoType::Sha512 => totp_custom::<Sha512>(self.period, self.digits, &self.secret, time),
         };
-        return result;
+
+        let valid_for = Duration::from_secs(self.period - (time % self.period));
+        return OTPCode {
+            code,
+            valid_for,
+            period: Duration::from_secs(self.period),
+        };
     }
 }

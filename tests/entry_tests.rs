@@ -87,7 +87,7 @@ mod tests {
             let otp_str = "otpauth://totp/KeePassXC:none?secret=JBSWY3DPEHPK3PXP&period=30&digits=6&issuer=KeePassXC";
             assert_eq!(e.get_raw_otp_value(), Some(otp_str));
             assert_eq!(e.get_otp(), TOTP::parse_from_str(otp_str));
-            assert_eq!(e.get_otp().unwrap().current_value().len(), 6); // 6 digits
+            assert_eq!(e.get_otp().unwrap().current_value().code.len(), 6); // 6 digits
         } else {
             panic!("Expected an entry");
         }
@@ -107,7 +107,7 @@ mod tests {
             let otp_str = "otpauth://totp/sha512%20totp:none?secret=GEZDGNBVGY%3D%3D%3D%3D%3D%3D&period=30&digits=6&issuer=sha512%20totp&algorithm=SHA512";
             assert_eq!(e.get_raw_otp_value(), Some(otp_str));
             assert_eq!(e.get_otp(), TOTP::parse_from_str(otp_str));
-            assert_eq!(e.get_otp().unwrap().current_value().len(), 6); // 6 digits
+            assert_eq!(e.get_otp().unwrap().current_value().code.len(), 6); // 6 digits
         } else {
             panic!("Expected an entry");
         }
