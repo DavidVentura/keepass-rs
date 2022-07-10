@@ -56,3 +56,7 @@ required-features = ["utilities"]
 [[bin]]
 name = "kp-show-db"
 required-features = ["utilities"]
+
+[[bin]]
+name = "kp-show-otp"
+required-features = ["utilities"]
